@@ -11,6 +11,7 @@ import createAccountSchema from '../data/schema/createAccount.json';
 import findTransactionsSchema from '../data/schema/findTransactions.json';
 import Chance from 'chance';
 import Ajv from 'ajv';
+import { AxiosResponse } from 'axios';
 
 const chance = new Chance();
 const avj = new Ajv();
@@ -69,16 +70,15 @@ describe('Automation Test Challenge', async () => {
 
       Allure.logStep('Verify transaction details.');
       await expect(await FindTransactionsPage.lblTransactionDescription.getText()).toEqual(transactionDescription);
-      Allure.logStep(await FindTransactionsPage.lblTransactionAmount.getText());
       const transactionAmount = parseInt((await FindTransactionsPage.lblTransactionAmount.getText()).replace('$', ''));
       await expect(transactionAmount).toEqual(MIN_DEPOSIT);
     });
   });
 
   describe('API Automation', async () => {
-    let customerId: string, apiNewAccountId: string;
+    let customerId: string, apiNewAccountId: string, expectedCustomerDetails: AxiosResponse<any, any>;
     //Since the app does not have expose API for login to authenticate. I've use the created user to retrieve the customer ID.
-    it('Get customer id using newly registered user.', async () => {
+    it('Get customer id using newly registered users username and password.', async () => {
       //prepare request config
       const requestConfig = new RequestConfigBuilder()
         .setMethod('GET')
@@ -87,6 +87,7 @@ describe('Automation Test Challenge', async () => {
 
       //execute request
       const res = await ExecuteRequest(requestConfig);
+      expectedCustomerDetails = res;
 
       //validate response
       expect(res.status).toEqual(200);
@@ -98,7 +99,27 @@ describe('Automation Test Challenge', async () => {
       expect(isValid).toBeTruthy();
     });
 
-    it('Create a savings account using createAccount via API.', async () => {
+    it('Get customer details using customer id.', async () => {
+      //prepare request config
+      const requestConfig = new RequestConfigBuilder()
+        .setMethod('GET')
+        .setUrl(`services/bank/customers/${customerId}`) //endpoint
+        .build();
+
+      //execute request
+      const res = await ExecuteRequest(requestConfig);
+
+      //validate response
+      expect(res.status).toEqual(200);
+      expect(res.data).toEqual(expectedCustomerDetails.data);
+
+      //validate schema
+      const validateSchema = avj.compile(userDetailsSchema);
+      const isValid = validateSchema(res.data);
+      expect(isValid).toBeTruthy();
+    });
+
+    it('Create a savings account via API.', async () => {
       //prepare request config
       const requestConfig = new RequestConfigBuilder()
         .setMethod('POST')
@@ -111,6 +132,9 @@ describe('Automation Test Challenge', async () => {
 
       //validate response
       expect(res.status).toEqual(200);
+      expect(res.data.customerId).toEqual(customerId);
+      expect(res.data.type).toEqual('SAVINGS');
+
       apiNewAccountId = res.data.id;
 
       //validate schema
@@ -131,6 +155,10 @@ describe('Automation Test Challenge', async () => {
 
       //validate response
       expect(res.status).toEqual(200);
+      expect(res.data[0].accountId).toEqual(apiNewAccountId);
+      expect(res.data[0].type).toEqual('Credit');
+      expect(res.data[0].amount).toEqual(MIN_DEPOSIT);
+      expect(res.data[0].description).toEqual('Funds Transfer Received');
 
       //validate schema
       const validateSchema = avj.compile(findTransactionsSchema);
